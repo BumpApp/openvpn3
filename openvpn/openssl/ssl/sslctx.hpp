@@ -76,7 +76,7 @@
 #include <openvpn/openssl/bio/bio_memq_stream.hpp>
 #include <openvpn/openssl/ssl/sess_cache.hpp>
 #include <openvpn/openssl/ssl/tlsver.hpp>
-
+#include <openssl/provider.h>
 
 #ifdef HAVE_JSON
 #include <openvpn/common/jsonhelper.hpp>
@@ -764,6 +764,23 @@ namespace openvpn {
 	ssl23_method_server_ = *SSLv23_server_method();
 	ssl23_method_server_.ssl_pending = ssl_pending_override;
 #endif
+	/* Hack to always load legacy for ics-openvpn to get a release out now
+	 * and fix it later */
+	OSSL_PROVIDER *legacy;
+	OSSL_PROVIDER *deflt;
+
+	/* Load Multiple providers into the default (NULL) library context */
+	legacy = OSSL_PROVIDER_load(NULL, "legacy");
+	if (legacy == NULL) {
+	    printf("\n");
+	    throw OpenSSLException("OpenSSLContext::SSL:Failed to load Legacy provider");
+	  }
+	deflt = OSSL_PROVIDER_load(NULL, "default");
+	if (deflt == NULL) {
+	    printf("Failed to load Default provider\n");
+	    OSSL_PROVIDER_unload(legacy);
+	    throw OpenSSLException("OpenSSLContext::SSL:Failed to load Default provider");
+	  }
       }
 
     private:
