@@ -216,18 +216,16 @@ namespace openvpn {
 	  {
 	  case CryptoAlgs::AES_128_GCM:
 	    keysize = 16;
-	    return EVP_aes_128_gcm();
+	    return EVP_CIPHER_fetch(nullptr, "AES-128-GCM", nullptr);
 	  case CryptoAlgs::AES_192_GCM:
 	    keysize = 24;
-	    return EVP_aes_192_gcm();
+	    return EVP_CIPHER_fetch(nullptr, "AES-192-GCM", nullptr);
 	  case CryptoAlgs::AES_256_GCM:
-	      keysize = 32;
-	    return EVP_aes_256_gcm();
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(OPENSSL_NO_POLY1305) && !defined(OPENSSL_NO_CHACHA)
+	    keysize = 32;
+	    return EVP_CIPHER_fetch(nullptr, "AES-256-GCM", nullptr);
 	  case CryptoAlgs::CHACHA20_POLY1305:
 	      keysize = 32;
-	      return EVP_chacha20_poly1305();
-#endif
+	      return EVP_CIPHER_fetch(nullptr, "CHACHA20-POLY1305", nullptr);
 	  default:
 	       keysize = 0;
 	       return nullptr;

@@ -409,5 +409,15 @@ int EVP_PKEY_get_group_name(EVP_PKEY *pkey, char *gname, size_t gname_sz,
   return 1;
 }
 
+/* Mimics the function but only when the default context without
+ * options is chosen */
+static inline const EVP_CIPHER *
+EVP_CIPHER_fetch(void *ctx, const char *algorithm, const char *properties)
+{
+  assert(!ctx);
+  assert(!properties);
+  return EVP_get_cipherbyname(algorithm);
+}
+
 #define EVP_PKEY_get_bits EVP_PKEY_bits
 #endif

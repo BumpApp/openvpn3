@@ -74,7 +74,11 @@ namespace openvpn {
 	free_cipher_context();
 	ctx = EVP_CIPHER_CTX_new();
 	EVP_CIPHER_CTX_reset (ctx);
-	if (!EVP_CipherInit_ex (ctx, cipher_type(alg), nullptr, key, nullptr, mode))
+	auto cipher = cipher_type(alg);
+	if (!cipher)
+		OPENVPN_THROW(openssl_cipher_error, CryptoAlgs::name(alg) << ": not usable");
+
+	if (!EVP_CipherInit_ex (ctx, cipher, nullptr, key, nullptr, mode))
 	  {
 	    openssl_clear_error_stack();
 	    free_cipher_context();
@@ -153,23 +157,23 @@ namespace openvpn {
 	switch (alg)
 	  {
 	  case CryptoAlgs::AES_128_CBC:
-	    return EVP_aes_128_cbc();
+	    return EVP_CIPHER_fetch(nullptr, "AES-128-CBC", nullptr);
 	  case CryptoAlgs::AES_192_CBC:
-	    return EVP_aes_192_cbc();
+	    return EVP_CIPHER_fetch(nullptr, "AES-192-CBC", nullptr);
 	  case CryptoAlgs::AES_256_CBC:
-	    return EVP_aes_256_cbc();
+	    return EVP_CIPHER_fetch(nullptr, "AES-256-CBC", nullptr);
 	  case CryptoAlgs::AES_256_CTR:
-	    return EVP_aes_256_ctr();
+	    return EVP_CIPHER_fetch(nullptr, "AES-256-CTR", nullptr);
 	  case CryptoAlgs::DES_CBC:
-	    return EVP_des_cbc();
+	    return EVP_CIPHER_fetch(nullptr, "DES-CBC", nullptr);
 	  case CryptoAlgs::DES_EDE3_CBC:
-	    return EVP_des_ede3_cbc();
+	    return EVP_CIPHER_fetch(nullptr, "DES-EDE-CBC", nullptr);
 	  case CryptoAlgs::BF_CBC:
-	    return EVP_bf_cbc();
+	    return EVP_CIPHER_fetch(nullptr, "BF-CBC", nullptr);
 	  default:
-	    OPENVPN_THROW(openssl_cipher_error, CryptoAlgs::name(alg) << ": not usable");
+	    return nullptr;
 	  }
-      }
+     }
 
       void free_cipher_context()
       {
