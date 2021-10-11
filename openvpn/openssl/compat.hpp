@@ -419,5 +419,10 @@ EVP_CIPHER_fetch(void *ctx, const char *algorithm, const char *properties)
   return EVP_get_cipherbyname(algorithm);
 }
 
+static inline SSL_CTX *
+SSL_CTX_new_ex(void *libctx, const char *propq, const SSL_METHOD *meth)
+{
+  return SSL_CTX_new(meth);
+}
 #define EVP_PKEY_get_bits EVP_PKEY_bits
 #endif

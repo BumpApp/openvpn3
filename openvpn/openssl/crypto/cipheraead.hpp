@@ -63,14 +63,15 @@ namespace openvpn {
 
       ~CipherContextAEAD() { free_cipher_context(); }
 
-      void init(const CryptoAlgs::Type alg,
+      void init(SSLLib::Ctx libctx,
+		  const CryptoAlgs::Type alg,
 		const unsigned char *key,
 		const unsigned int keysize,
 		const int mode)
       {
 	free_cipher_context();
 	unsigned int ckeysz = 0;
-	const EVP_CIPHER *ciph = cipher_type(alg, ckeysz);
+	const EVP_CIPHER *ciph = cipher_type(libctx, alg, ckeysz);
 
 	if (ciph == nullptr)
 	  OPENVPN_THROW(openssl_gcm_error, CryptoAlgs::name(alg) << ": not usable");
@@ -201,31 +202,31 @@ namespace openvpn {
 
       bool is_initialized() const { return ctx != nullptr; }
 
-      static bool is_supported(const CryptoAlgs::Type alg)
+      static bool is_supported(SSLLib::Ctx libctx, const CryptoAlgs::Type alg)
       {
 	unsigned int keysize;
-	return (cipher_type(alg, keysize) != nullptr);
+	return (cipher_type(libctx, alg, keysize) != nullptr);
       }
 
 
     private:
-      static const EVP_CIPHER *cipher_type(const CryptoAlgs::Type alg,
+      static const EVP_CIPHER *cipher_type(SSLLib::Ctx libctx, const CryptoAlgs::Type alg,
 					   unsigned int& keysize)
       {
 	switch (alg)
 	  {
 	  case CryptoAlgs::AES_128_GCM:
 	    keysize = 16;
-	    return EVP_CIPHER_fetch(nullptr, "AES-128-GCM", nullptr);
+	    return EVP_CIPHER_fetch(libctx, "AES-128-GCM", nullptr);
 	  case CryptoAlgs::AES_192_GCM:
 	    keysize = 24;
-	    return EVP_CIPHER_fetch(nullptr, "AES-192-GCM", nullptr);
+	    return EVP_CIPHER_fetch(libctx, "AES-192-GCM", nullptr);
 	  case CryptoAlgs::AES_256_GCM:
 	    keysize = 32;
-	    return EVP_CIPHER_fetch(nullptr, "AES-256-GCM", nullptr);
+	    return EVP_CIPHER_fetch(libctx, "AES-256-GCM", nullptr);
 	  case CryptoAlgs::CHACHA20_POLY1305:
 	      keysize = 32;
-	      return EVP_CIPHER_fetch(nullptr, "CHACHA20-POLY1305", nullptr);
+	      return EVP_CIPHER_fetch(libctx, "CHACHA20-POLY1305", nullptr);
 	  default:
 	       keysize = 0;
 	       return nullptr;
