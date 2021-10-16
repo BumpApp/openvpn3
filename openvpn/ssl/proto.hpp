@@ -765,7 +765,7 @@ namespace openvpn {
       void set_tls_crypt_algs(const CryptoAlgs::Type digest,
 			      const CryptoAlgs::Type cipher)
       {
-	tls_crypt_context = tls_crypt_factory->new_obj(ssl_factory->libctx(), digest, cipher);
+	tls_crypt_context = tls_crypt_factory->new_obj(nullptr, digest, cipher);
       }
 
       void set_xmit_creds(const bool xmit_creds_arg)
