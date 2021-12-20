@@ -725,6 +725,30 @@ namespace openvpn {
 	return *cp_main;
     }
 
+    OpenSSLContext::Config::Ptr createSSLConfig(const OptionList &opt,
+			const Config &config,
+			unsigned int lflags) const
+      {
+      // client SSL config
+      OpenSSLContext::Config::Ptr cc(new OpenSSLContext::Config());
+      cc->set_external_pki_callback(config.external_pki);
+      cc->set_frame(frame);
+      cc->set_flags(SSLConst::LOG_VERIFY_STATUS);
+      cc->set_debug_level(config.ssl_debug_level);
+      cc->set_rng(rng);
+      /* load depends on private key password and legacy algorithms */
+      cc->set_private_key_password(config.private_key_password);
+      cc->enable_legacy_algorithms(config.enable_legacy_algorithms);
+      cc->load(opt, lflags);
+      cc->set_tls_version_min_override(config.tls_version_min_override);
+      cc->set_tls_cert_profile_override(config.tls_cert_profile_override);
+      cc->set_tls_cipher_list(config.tls_cipher_list);
+      cc->set_tls_ciphersuite_list(config.tls_ciphersuite_list);
+      if (!cc->get_mode().is_client())
+	throw option_error("only client configuration supported");
+      return cc;
+    }
+
     Client::ProtoConfig::Ptr proto_config(const OptionList& opt,
 					  const Config& config,
 					  const ParseClientConfig& pcc,
@@ -738,24 +762,9 @@ namespace openvpn {
       unsigned int lflags = SSLConfigAPI::LF_PARSE_MODE;
       if (relay_mode)
 	lflags |= SSLConfigAPI::LF_RELAY_MODE;
-
-      // client SSL config
-      SSLLib::SSLAPI::Config::Ptr cc(new SSLLib::SSLAPI::Config());
-      cc->set_external_pki_callback(config.external_pki);
-      cc->set_frame(frame);
-      cc->set_flags(SSLConst::LOG_VERIFY_STATUS);
-      cc->set_debug_level(config.ssl_debug_level);
-      cc->set_rng(rng);
+      auto cc = createSSLConfig(opt, config, lflags);
       cc->set_local_cert_enabled(pcc.clientCertEnabled() && !config.disable_client_cert);
-      cc->set_private_key_password(config.private_key_password);
-      cc->load(opt, lflags);
-      cc->set_tls_version_min_override(config.tls_version_min_override);
-      cc->set_tls_cert_profile_override(config.tls_cert_profile_override);
-      cc->set_tls_cipher_list(config.tls_cipher_list);
-      cc->set_tls_ciphersuite_list(config.tls_ciphersuite_list);
-	  cc->enable_legacy_algorithms(config.enable_legacy_algorithms);
-      if (!cc->get_mode().is_client())
-	throw option_error("only client configuration supported");
+
 
       // client ProtoContext config
       Client::ProtoConfig::Ptr cp(new Client::ProtoConfig());
