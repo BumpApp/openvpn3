@@ -29,6 +29,7 @@
 #define OPENVPN_CLIENT_CLIOPT_H
 
 #include <string>
+#include <unordered_set>
 
 #include <openvpn/error/excode.hpp>
 
@@ -105,7 +106,7 @@
 #endif
 
 #ifndef OPENVPN_UNUSED_OPTIONS
-#define OPENVPN_UNUSED_OPTIONS "UNUSED OPTIONS"
+#define OPENVPN_UNUSED_OPTIONS "UNKNOWN/UNSUPPORTED OPTIONS"
 #endif
 
 namespace openvpn {
@@ -316,13 +317,7 @@ namespace openvpn {
 	  http_proxy_options->proxy_server_set_enable_cache(config.tun_persist);
 	}
 
-      // secret option not supported
-      if (opt.exists("secret"))
-	throw option_error("sorry, static key encryption mode (non-SSL/TLS) is not supported");
-
-      // fragment option not supported
-      if (opt.exists("fragment"))
-	throw option_error("sorry, 'fragment' directive is not supported, nor is connecting to a server that uses 'fragment' directive");
+      check_for_incompatible_options(opt);
 
 #ifdef OPENVPN_PLATFORM_UWP
       // workaround for OVPN3-62 Busy loop in win_event.hpp
@@ -571,8 +566,348 @@ namespace openvpn {
 	}
       }
 
-      // show unused options
-      opt.show_unused_options(OPENVPN_UNUSED_OPTIONS);
+      handle_unused_options(opt);
+    }
+
+    void check_for_incompatible_options(const OptionList &opt) {
+      // secret option not supported
+      if (opt.exists("secret"))
+	throw option_error("sorry, static key encryption mode (non-SSL/TLS) is not supported");
+
+      // fragment option not supported
+      if (opt.exists("fragment"))
+	throw option_error("sorry, 'fragment' directive is not supported, nor is connecting to a server that uses 'fragment' directive");
+
+      // Only p2p mode accept
+      if (opt.exists("mode"))
+      {
+	auto mode = opt.get("mode");
+	if(mode.size() != 1 || mode.get(1, 128) != "p2p")
+	{
+	  throw option_error("Only 'mode p2p' supported");
+	}
+      }
+    }
+
+    /**
+     * This groups all the options that OpenVPN 2.x supports that the
+     * OpenVPN v3 client does not support into a number of different groups
+     * and warns or errors out if with a specific message for that group.
+     *
+     * If any option that is not touched() after going through all groups
+     * the function will print them as unknown unsupported option(s) and
+     * error out
+     */
+    void handle_unused_options(const OptionList &opt)
+    {
+        std::unordered_set<std::string> ignoreWithWarning = {
+            "ifconfig-nowarn", /* v3 does not do OCC checks */
+            "disable-occ",
+            "opt-verify",
+            "disable-dco", /* TODO: maybe throw an error if DCO is active? */
+            "resolv-retry",
+            "preresolve",
+            "connect-retry",
+            "connect-timeout", /* TODO: this should be really implemented */
+            "connect-retry-max",
+            "suppress-timestamps",     /* harmless to ignore  */
+            "machine-readable-output", /* would be set by a CliOptions */
+            "verb",
+            "mute",
+            "link-mtu",
+            "udp-mtu", /* Alias for link-mtu */
+            "nice",
+            "mark", /* enables SO_MARK */
+            "socket-flags",
+            "lport",                /* strictly not supported but often present for no good reason */
+            "keepalive",            /* A push only feature (ping/ping-restart) in v3. Ignore with warning since often present in configs too */
+            "explicit-exit-notify", /* ignoring it in config does not break connection or functionality */
+            "persist-tun",
+            "persist-key",
+            "compat-mode",
+            "tcp-nodelay",
+            "user",
+            "group",
+            "route-method", /* Windows specific fine tuning option */
+            "passtos",
+            "allow-compression", /* TODO: maybe check against our client option compression setting? */
+            "data-ciphers",      /* TODO: maybe add more special warning that checks it against our supported ciphers */
+            "ncp-ciphers",
+            "replay-window",
+            "engine",
+            "providers",       /* Done via client options */
+            "tls-version-max", /* We don't allow restricting max version */
+            "auth-nocache",
+            "reneg-bytes",
+            "reneg-pkts",
+            "allow-recursive-routing",
+            "auth-retry",
+            "data-ciphers-fallback",
+            "remap-usr1",
+            "ip-win32",
+            "show-net-up",
+        };
+
+        std::unordered_set<std::string> serverOnlyOptions = {
+            "server",
+            "server-ipv6",
+            "server-bridge",
+            "push",
+            "push-reset",
+            "push-remove",
+            "ifconfig-pool",
+            "ifconfig-pool-persist",
+            "ifconfig-ipv6-pool",
+            "hash-size",
+            "connect-freq",
+            "max-clients",
+            "max-routes-per-client",
+            "verify-client-cert",
+            "username-as-common-name",
+            "auth-user-pass-optional",
+            "auth-user-pass-verify",
+            "auth-gen-token",
+            "auth-gen-token-secret",
+            "client-connect",
+            "client-disconnect",
+            "client-config-dir",
+            "ccd-exclusive",
+            "bcast-buffers",
+            "client-to-client",
+            "duplicate-cn",
+            "iroute",
+            "iroute-ipv6",
+            "ifconfig-push",
+            "stale-routes-check",
+            "disable",
+            "ifconfig-push-constraint",
+            "dh",
+            "compat-names",
+            "tls-crypt-v2-verify",
+            "vlan-tagging",
+            "vlan-accept",
+            "vlan-pvid"};
+
+        /* Features not implemented and not safe to ignore */
+        std::unordered_set<std::string> feature_not_implemented_fatal = {
+            "socks-proxy",
+            "client-nat",
+            "capath",
+            "verify-hash",
+            "x509-username-field",
+            "cd",
+            "single-session", /* This option is quite obscure but changes behaviour enough to not ignore it */
+            "log",
+            "daemon",
+            "win-sys",
+            "management",
+            "msg-channel", /* (Windows service in v2) */
+            "lladdr",
+            "syslog",
+            "chroot",
+            "daemon",
+            "log",
+            "log-append",
+            "errors-to-stderr",
+            "memstats",
+            "ping-timer-rem",
+            "tls-server", /* No p2p mode in v3 */
+            "askpass",
+            "writepid",
+            "status",
+            "status-version",
+            "tun-mtu-extra", /*(only really used in tap in OpenVPN 2.x)*/
+            "cryptoapicert",
+            "gremlin"
+
+        };
+
+        /* Features not implemented but safe enough to ignore */
+        std::unordered_set<std::string> feature_not_implemented_warn = {
+            "local",
+            "lport",
+            "mlock",
+            "mtu-disc",
+            "mtu-test",
+            "shaper",
+            "bind",
+            "persist-local-ip",
+            "persist-remote-ip",
+            "allow-pull-fqdn",
+            "tls-exit",
+        };
+
+        /* Push only options (some are allowed in the config in OpenVPN 2
+         * but really push only options) */
+        std::unordered_set<std::string> pushonlyoptions = {
+            "echo", "parameter", "ping", "ping-exit", "ping-restart", /*in v3 since pull only, v2 needs them for pure p2p */
+            "key-derivation",
+            "protocol-flags",
+            "auth-token",
+            "auth-token-user",
+            "peer-id"};
+
+        /* Features related to scripts/plugins */
+        std::unordered_set<std::string> script_plugin_feature = {
+            "plugin",
+            "ipchange",
+            "up",
+            "down",
+            "down-pre",
+            "up-delay",
+            "route-up",
+            "route-pre-down",
+            "ifconfig-noexec",
+            "route-noexec",
+            "setenv-safe",
+            "learn-address",
+            "tls-verify",
+            "tls-export-cert",
+            "x509-track"};
+
+        /* Meta options that AS profiles often have that we do not parse and
+         * can ignore without warning */
+        std::unordered_set<std::string> ignoreMetaOptions = {
+            "CLI_PREF_ALLOW_WEB_IMPORT",
+            "CLI_PREF_BASIC_CLIENT",
+            "CLI_PREF_ENABLE_CONNECT",
+            "CLI_PREF_ENABLE_XD_PROXY",
+            "WSHOST",
+            "WEB_CA_BUNDLE",
+            "IS_OPENVPN_WEB_CA",
+            "OVPN_ACCESS_SERVER_NO_WEB",
+        };
+
+        /* Standalone OpenVPN v2 modes */
+        std::unordered_set<std::string> standalone_options = {
+            "show-ciphers",
+            "show-digests",
+            "show-engines",
+            "genkey",
+            "test-crypto",
+            "show-tls",
+            "show-curves",
+            "show-groups",
+            "rmtun",
+            "mktun"};
+
+        /* Deprecated/throwing error in OpenVPN 2.x already: */
+        std::unordered_set<std::string> removedOptions = {
+            "mtu-dynamic", "no-replay", "no-name-remapping", "compat-names"};
+
+        std::unordered_set<std::string> ignoreSilently = {
+            "tun-ipv6", /* ignored in v2 as well */
+            "rcvbuf",   /* present in many configs */
+            "sndbuf",
+            "txqueuelen", /* so platforms evaluate that in tun, some do not, do not warn about that */
+            "nobind",     /* only behaviour in v3 client anyway */
+            "fast-io",
+            "max-routes",
+            "script-security",
+            "tmp-dir",
+            "prng",
+            "mute-replay-warnings",
+            "replay-persist", /* Makes little sense in TLS mode */
+            "ecdh-curve",     /* Deprecated in v2, not needed with modern OpenSSL */
+            "tls-client",     /* Always enabled */
+            "verb"};
+
+        std::unordered_set<std::string> ignore_unknown_option_list;
+
+        if (opt.exists("ignore-unknown-option"))
+        {
+            auto igOptlist = opt.get_index("ignore-unknown-option");
+            for (auto igUnOptIdx : igOptlist)
+            {
+                const Option &o = opt[igUnOptIdx];
+                for (size_t i = 1; i < o.size(); i++)
+                {
+                    auto optionToIgnore = o.get(i, 0);
+
+                    ignore_unknown_option_list.insert(optionToIgnore);
+                }
+                o.touch();
+            }
+        }
+
+        for (auto &o : opt)
+        {
+            if (!o.meta() && ignoreSilently.find(o.get(0, 0)) != ignoreSilently.end())
+            {
+                o.touch();
+            }
+            if (o.meta() && ignoreMetaOptions.find(o.get(0, 0)) != ignoreMetaOptions.end())
+            {
+                o.touch();
+            }
+        }
+
+        /* Mark all options that will not trigger any kind of message
+         * as touched to avoid an empty message with unused options */
+        if (opt.n_unused() == 0)
+            return;
+
+        OPENVPN_LOG_NTNL("NOTE: This configuration contains options that were not used:" << std::endl);
+
+        /* Go through all options and check all options that have not been
+         * touched (parsed) yet */
+        showUnusedOptionsByList(opt, removedOptions, "Removed deprecated option", true);
+        showUnusedOptionsByList(opt, serverOnlyOptions, "Server only option", true);
+        showUnusedOptionsByList(opt, standalone_options, "OpenVPN 2.x command line operation", true);
+        showUnusedOptionsByList(opt, feature_not_implemented_warn, "Feature not implemented (option ignored)", false);
+        showUnusedOptionsByList(opt, pushonlyoptions, "Option allowed only to be pushed by the server", true);
+
+        showUnusedOptionsByList(opt, feature_not_implemented_warn, "feature not implemented/available", false);
+        showUnusedOptionsByList(opt, script_plugin_feature, "Ignored (no script/plugin support)", false);
+        showUnusedOptionsByList(opt, ignore_unknown_option_list, "Ignored by option 'ignore-unknown-option'", false);
+        showUnusedOptionsByList(opt, ignoreWithWarning, "Unsupported option (ignored)", false);
+
+        auto ignoredBySetenvOpt = [](const Option &option) { return !option.touched() && option.warnonlyunknown(); };
+        showOptionsByFunction(opt, ignoredBySetenvOpt, "Ignored options prefixed with 'setenv opt'", false);
+
+        auto unusedMetaOpt = [](const Option &option) { return !option.touched() && option.meta(); };
+        showOptionsByFunction(opt, unusedMetaOpt, "Unused ignored meta options", false);
+
+        auto managmentOpt = [](const Option &option) { return !option.touched() && option.get(0, 0).rfind("management", 0) == 0; };
+        showOptionsByFunction(opt, managmentOpt, "OpenVPN management interface is not supported by this client", true);
+
+        // If we still have options that are unaccounted for, we print them and throw an error
+        auto nonTouchedOptions = [](const Option &option) { return !option.touched(); };
+
+        showOptionsByFunction(opt, nonTouchedOptions, OPENVPN_UNUSED_OPTIONS, true);
+    }
+
+    void showUnusedOptionsByList(const OptionList &optlist, std::unordered_set<std::string> option_set, const std::string &message, bool fatal)
+    {
+        auto func = [&option_set](const Option &opt) { return !opt.touched() && option_set.find(opt.get(0, 0)) != option_set.end(); };
+        showOptionsByFunction(optlist, func, message, fatal);
+    }
+
+    /* lambda expression that capture variables have complex signatures, avoid these by letting the compiler
+     * itself figure it out with a template */
+    template <typename T>
+    void showOptionsByFunction(const OptionList &opt, T func, const std::string &message, bool fatal)
+    {
+        bool messageShown = false;
+        for (size_t i = 0; i < opt.size(); ++i)
+        {
+            auto &o = opt[i];
+            if (func(o))
+            {
+                if (!messageShown)
+                {
+                    OPENVPN_LOG(message);
+                    messageShown = true;
+                }
+                o.touch();
+
+                OPENVPN_LOG_NTNL(std::to_string(i) << ' ' << o.render(Option::RENDER_BRACKET | Option::RENDER_TRUNC_64) << std::endl);
+            }
+        }
+        if (fatal && messageShown)
+        {
+            throw option_error("sorry, unsupported options present in configuration: " + message);
+        }
     }
 
     static PeerInfo::Set::Ptr build_peer_info(const Config& config, const ParseClientConfig& pcc, const bool autologin_sessions)
