@@ -464,6 +464,7 @@ class ClientState
     std::string tls_cipher_list;
     std::string tls_ciphersuite_list;
     bool enable_legacy_algorithms = false;
+    bool ignoreUnknownAndUnsupportedOptions = false;
     bool enable_nonpreferred_dcalgs = false;
     std::string gui_version;
     std::string sso_methods;
@@ -735,6 +736,7 @@ OPENVPN_CLIENT_EXPORT void OpenVPNClient::parse_extras(const Config &config, Eva
         state->tls_cipher_list = config.tlsCipherList;
         state->tls_ciphersuite_list = config.tlsCiphersuitesList;
         state->enable_legacy_algorithms = config.enableLegacyAlgorithms;
+        state->ignoreUnknownAndUnsupportedOptions = config.ignoreUnknownAndUnsupportedOptions;
         state->enable_nonpreferred_dcalgs = config.enableNonPreferredDCAlgorithms;
         state->allow_local_lan_access = config.allowLocalLanAccess;
         state->gui_version = config.guiVersion;
@@ -1051,6 +1053,7 @@ OPENVPN_CLIENT_EXPORT void OpenVPNClient::connect_setup(Status &status, bool &se
     cc.tls_cipher_list = state->tls_cipher_list;
     cc.tls_ciphersuite_list = state->tls_ciphersuite_list;
     cc.enable_legacy_algorithms = state->enable_legacy_algorithms;
+    cc.ignoreUnknownAndUnsupportedOptions = state->ignoreUnknownAndUnsupportedOptions;
     cc.enable_nonpreferred_dcalgs = state->enable_nonpreferred_dcalgs;
     cc.gui_version = state->gui_version;
     cc.sso_methods = state->sso_methods;

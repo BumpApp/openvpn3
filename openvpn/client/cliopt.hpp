@@ -161,6 +161,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         std::string tls_ciphersuite_list;
         bool enable_legacy_algorithms = false;
         bool enable_nonpreferred_dcalgs = false;
+        bool ignoreUnknownAndUnsupportedOptions = false;
         PeerInfo::Set::Ptr extra_peer_info;
 #ifdef OPENVPN_PLATFORM_ANDROID
         bool enable_route_emulation = true;
@@ -584,7 +585,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
             }
         }
 
-        handle_unused_options(opt);
+        handle_unused_options(opt, config.ignoreUnknownAndUnsupportedOptions);
     }
 
     void check_for_incompatible_options(const OptionList &opt)
@@ -883,7 +884,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
      * the function will print them as unknown unsupported option(s) and
      * error out
      */
-    void handle_unused_options(const OptionList &opt)
+    void handle_unused_options(const OptionList &opt, bool ignoreUnknownAndUnsupportedOptions)
     {
         /* Meta options that AS profiles often have that we do not parse and
          * can ignore without warning */
@@ -937,12 +938,13 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         OPENVPN_LOG_NTNL("NOTE: This configuration contains options that were not used:" << std::endl);
 
         OptionErrors errors{};
+        bool errorOut = !ignoreUnknownAndUnsupportedOptions;
 
         /* Go through all options and check all options that have not been
          * touched (parsed) yet */
-        showUnusedOptionsByList(opt, settings_removedOptions, "Removed deprecated option", true, errors);
-        showUnusedOptionsByList(opt, settings_serverOnlyOptions, "Server only option", true, errors);
-        showUnusedOptionsByList(opt, settings_standalone_options, "OpenVPN 2.x command line operation", true, errors);
+        showUnusedOptionsByList(opt, settings_removedOptions, "Removed deprecated option", errorOut, errors);
+        showUnusedOptionsByList(opt, settings_serverOnlyOptions, "Server only option", errorOut, errors);
+        showUnusedOptionsByList(opt, settings_standalone_options, "OpenVPN 2.x command line operation", errorOut, errors);
         showUnusedOptionsByList(opt, settings_feature_not_implemented_warn, "Feature not implemented (option ignored)", false, errors);
         showUnusedOptionsByList(opt, settings_pushonlyoptions, "Option allowed only to be pushed by the server", true, errors);
         showUnusedOptionsByList(opt, settings_script_plugin_feature, "Ignored (no script/plugin support)", false, errors);
@@ -959,7 +961,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
 
         auto managmentOpt = [](const Option &option)
         { return !option.touched() && option.get(0, 0).rfind("management", 0) == 0; };
-        showOptionsByFunction(opt, managmentOpt, "OpenVPN management interface is not supported by this client", true, errors);
+        showOptionsByFunction(opt, managmentOpt, "OpenVPN management interface is not supported by this client", errorOut, errors);
 
         // If we still have options that are unaccounted for, we print them and throw an error or just warn about them
         auto onlyLightlyTouchedOptions = [](const Option &option)
@@ -968,7 +970,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
 
         auto nonTouchedOptions = [](const Option &option)
         { return !option.touched() && !option.touched_lightly(); };
-        showOptionsByFunction(opt, nonTouchedOptions, OPENVPN_UNUSED_OPTIONS, true, errors);
+        showOptionsByFunction(opt, nonTouchedOptions, OPENVPN_UNUSED_OPTIONS, errorOut, errors);
 
         errors.print_option_errors();
     }

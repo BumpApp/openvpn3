@@ -369,6 +369,9 @@ struct Config
     // with all tun builder properties pushed by server.
     // Currently only implemented on Linux.
     bool generate_tun_builder_capture_event = false;
+
+    // optional transitional switch in Core 3.8 only to not make unknown options fatal
+    bool ignoreUnknownAndUnsupportedOptions = false;
 };
 
 // used to communicate VPN events such as connect, disconnect, etc.
