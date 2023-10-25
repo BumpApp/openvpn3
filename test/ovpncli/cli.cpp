@@ -964,6 +964,7 @@ int openvpn_client(int argc, char *argv[], const std::string *profile_content)
         { "epki-key",       required_argument,  nullptr,       4  },
         { "legacy-algorithms", no_argument,      nullptr,      'L' },
         { "non-preferred-algorithms", no_argument, nullptr, 'Q' },
+        { "ignore-unknown-and-unsupported-options", no_argument, nullptr, 'F' },
 #ifdef OPENVPN_REMOTE_OVERRIDE
         { "remote-override",required_argument,  nullptr,       5  },
 #endif
@@ -1005,6 +1006,7 @@ int openvpn_client(int argc, char *argv[], const std::string *profile_content)
             bool cachePassword = false;
             bool disableClientCert = false;
             bool proxyAllowCleartextAuth = false;
+            bool ignoreUnknownAndUnsupportedOptions = false;
             int defaultKeyDirection = -1;
             int sslDebugLevel = 0;
             bool googleDnsFallback = false;
@@ -1035,7 +1037,7 @@ int openvpn_client(int argc, char *argv[], const std::string *profile_content)
             int ch;
             optind = 1;
 
-            while ((ch = getopt_long(argc, argv, "6:ABCD:G:I:LM:P:QR:S:TU:W:X:YZ:ac:degh:jk:lmp:q:r:s:t:u:vwxz:", longopts, nullptr)) != -1)
+            while ((ch = getopt_long(argc, argv, "6:ABCD:FG:I:LM:P:QR:S:TU:W:X:YZ:ac:degh:jk:lmp:q:r:s:t:u:vwxz:", longopts, nullptr)) != -1)
             {
                 switch (ch)
                 {
@@ -1127,6 +1129,9 @@ int openvpn_client(int argc, char *argv[], const std::string *profile_content)
                     break;
                 case 'B':
                     proxyAllowCleartextAuth = true;
+                    break;
+                case 'F':
+                    ignoreUnknownAndUnsupportedOptions = true;
                     break;
                 case 'A':
                     altProxy = true;
@@ -1250,6 +1255,7 @@ int openvpn_client(int argc, char *argv[], const std::string *profile_content)
                     config.proxyUsername = proxyUsername;
                     config.proxyPassword = proxyPassword;
                     config.proxyAllowCleartextAuth = proxyAllowCleartextAuth;
+                    config.ignoreUnknownAndUnsupportedOptions = ignoreUnknownAndUnsupportedOptions;
                     config.altProxy = altProxy;
                     config.dco = dco;
                     config.generate_tun_builder_capture_event = generate_tun_builder_capture_event;
