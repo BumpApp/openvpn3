@@ -223,6 +223,12 @@ class Session : ProtoContextCallbackInterface,
 
     void post_cc_msg(const std::string &msg)
     {
+        if (!Unicode::is_valid_utf8(msg, Unicode::UTF8_NO_CTRL))
+        {
+            ClientEvent::Base::Ptr ev = new ClientEvent::UnsupportedFeature{"Invalid chars in control message", "Control channel message with invalid characters not allowed to be send with post_cc_msg", false};
+            cli_events->add_event(std::move(ev));
+            return;
+        }
         proto_context.update_now();
         proto_context.write_control_string(msg);
         proto_context.flush(true);
