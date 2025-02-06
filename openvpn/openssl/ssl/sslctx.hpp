@@ -15,6 +15,8 @@
 #ifndef OPENVPN_OPENSSL_SSL_SSLCTX_H
 #define OPENVPN_OPENSSL_SSL_SSLCTX_H
 
+#include <map>
+#include <mutex>
 #include <string>
 #include <cstring>
 #include <cstdint>
@@ -125,6 +127,10 @@ class OpenSSLContext : public SSLFactoryAPI
     {
         friend class OpenSSLContext;
 
+        // These can be OR-ed to provide different OpenSSL library configurations.
+        static constexpr unsigned short LIB_CTX_NO_PROVIDERS = 0;
+        static constexpr unsigned short LIB_CTX_LEGACY_PROVIDER = (1 << 0);
+
       public:
         typedef RCPtr<Config> Ptr;
 
@@ -174,11 +180,12 @@ class OpenSSLContext : public SSLFactoryAPI
 
         void enable_legacy_algorithms(const bool v) override
         {
-            if (lib_ctx)
-                throw OpenSSLException("Library context already initialised, "
-                                       "cannot enable/disable legacy algorithms");
-
             load_legacy_provider = v;
+
+            if (load_legacy_provider)
+                lib_ctx_provider_config |= LIB_CTX_LEGACY_PROVIDER;
+            else
+                lib_ctx_provider_config &= ~LIB_CTX_LEGACY_PROVIDER;
         }
 
         // server side
@@ -612,30 +619,53 @@ class OpenSSLContext : public SSLFactoryAPI
       private:
         SSLLib::Ctx ctx() const
         {
-            initalise_lib_context();
-            return lib_ctx.get();
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+            initialise_lib_context();
+
+            std::lock_guard guard{lib_ctx_mutex};
+
+            auto it = lib_ctx_map.find(lib_ctx_provider_config);
+
+            if (it == lib_ctx_map.end())
+                throw OpenSSLException("OpenSSLContext: missing OSSL_LIB_CTX");
+
+            return it->second.get();
+#else
+            return nullptr;
+#endif
         }
 
-        void initalise_lib_context() const
+        void initialise_lib_context() const
         {
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
-            /* Already initialised */
-            if (lib_ctx)
-                return;
+            std::lock_guard guard{lib_ctx_mutex};
 
-            lib_ctx.reset(OSSL_LIB_CTX_new());
-            if (!lib_ctx)
+            auto it = lib_ctx_map.find(lib_ctx_provider_config);
+
+            /* Not already initialised */
+            if (it == lib_ctx_map.end())
             {
-                throw OpenSSLException("OpenSSLContext: OSSL_LIB_CTX_new failed");
+                SSLCtxTypeUPtr lib_ctx{OSSL_LIB_CTX_new(), &::OSSL_LIB_CTX_free};
+
+                if (!lib_ctx)
+                {
+                    throw OpenSSLException("OpenSSLContext: OSSL_LIB_CTX_new failed");
+                }
+
+                auto [iter, success] =
+                    lib_ctx_map.emplace(std::make_pair(lib_ctx_provider_config, std::move(lib_ctx)));
+
+                it = iter;
             }
-            if (load_legacy_provider)
+
+            if (load_legacy_provider && !legacy_provider)
             {
-                legacy_provider.reset(OSSL_PROVIDER_load(lib_ctx.get(), "legacy"));
+                legacy_provider.reset(OSSL_PROVIDER_load(it->second.get(), "legacy"));
 
                 if (!legacy_provider)
                     throw OpenSSLException("OpenSSLContext: loading legacy provider failed");
 
-                default_provider.reset(OSSL_PROVIDER_load(lib_ctx.get(), "default"));
+                default_provider.reset(OSSL_PROVIDER_load(it->second.get(), "default"));
                 if (!default_provider)
                     throw OpenSSLException("OpenSSLContext: loading default provider failed");
             }
@@ -664,7 +694,22 @@ class OpenSSLContext : public SSLFactoryAPI
          *
          * First field in this class so it gets destructed last*/
         using SSLCtxType = std::remove_pointer<SSLLib::Ctx>::type;
-        mutable std::unique_ptr<SSLCtxType, decltype(&::OSSL_LIB_CTX_free)> lib_ctx{nullptr, &::OSSL_LIB_CTX_free};
+        using SSLCtxTypeUPtr = std::unique_ptr<SSLCtxType, decltype(&::OSSL_LIB_CTX_free)>;
+
+        /* The C++ standard says:
+         *
+         * 26.2.6 Associative containers [associative.reqmts]
+         *
+         * The insert and emplace members shall not affect the validity of iterators
+         * and references to the container, and the erase members shall invalidate
+         * only iterators and references to the erased elements.
+         *
+         * So we should be safe to return pointers / references to existing
+         * values.
+         */
+        static inline std::map<unsigned short, SSLCtxTypeUPtr> lib_ctx_map;
+        static inline std::mutex lib_ctx_mutex;
+        unsigned short lib_ctx_provider_config{LIB_CTX_NO_PROVIDERS};
 
         Mode mode;
         CertCRLList ca;                   // from OpenVPN "ca" and "crl-verify" option
