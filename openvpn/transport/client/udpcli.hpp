@@ -224,10 +224,15 @@ class Client : public TransportClient, AsyncResolvableUDP
 
     void udp_read_handler(PacketFrom::SPtr &pfp) // called by LinkImpl
     {
-        if (config->server_addr_float || pfp->sender_endpoint == server_endpoint)
+        // OPENVPN_LOG("READ HANDLER!!!");
+        if (config->server_addr_float || pfp->sender_endpoint == server_endpoint) {
+            // OPENVPN_LOG("UDP: Received packet from " << pfp->sender_endpoint);
             parent->transport_recv(pfp->buf);
-        else
+        }
+        else {
+            // OPENVPN_LOG("UDP: Received packet from " << pfp->sender_endpoint << " but expected " << server_endpoint);
             config->stats->error(Error::BAD_SRC_ADDR);
+        }
     }
 
     void stop_()

@@ -282,7 +282,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         IV_PROTO_CC_EXIT_NOTIFY = (1 << 7),
         IV_PROTO_AUTH_FAIL_TEMP = (1 << 8),
         IV_PROTO_DYN_TLS_CRYPT = (1 << 9),
-        IV_PROTO_DATA_EPOCH = (1 << 10),
+        IV_PROTO_DATA_V3 = (1 << 10),
         IV_PROTO_DNS_OPTION_V2 = (1 << 11),
         IV_PROTO_PUSH_UPDATE = (1 << 12)
     };
@@ -665,16 +665,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             load_common(opt, pco, server ? LOAD_COMMON_SERVER : LOAD_COMMON_CLIENT);
         }
 
-        /**
-         * Fire up the infrastructure needed in order to be able to process dynamic
-         * TLS-crypt renegotiation.
-         */
-        void enable_dynamic_tls_crypt()
-        {
-            set_tls_crypt_algs();
-            tls_crypt_ |= TLSCrypt::Dynamic;
-        }
-
         // load options string pushed by server
         void process_push(const OptionList &opt, const ProtoContextCompressionOptions &pco)
         {
@@ -833,16 +823,21 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                         }
                         else if (flag == "dyn-tls-crypt")
                         {
-                            enable_dynamic_tls_crypt();
+                            set_tls_crypt_algs();
+                            tls_crypt_ |= Dynamic;
                         }
                         else if (flag == "tls-ekm")
                         {
                             // Overrides "key-derivation" method set above
                             dc.set_key_derivation(CryptoAlgs::KeyDerivation::TLS_EKM);
                         }
-                        else if (flag == "aead-epoch")
+                        else if (flag == "aead-tag-end")
                         {
-                            dc.set_use_epoch_keys(true);
+                            dc.set_aead_tag_end(true);
+                        }
+                        else if (flag == "pkt-id-64-bit")
+                        {
+                            dc.set_64_bit_packet_id(true);
                         }
                         else
                         {
@@ -918,8 +913,11 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
             os << ", peer-id " << remote_peer_id;
 
-            if (dc.useEpochKeys())
-                os << ", aead-epoch";
+            if (dc.aeadTagAtTheEnd())
+                os << ", aead-tag-end";
+
+            if (dc.use64bitPktCounter())
+                os << ", pkt-id-64-bit";
 
             os << std::endl;
         }
@@ -1102,8 +1100,12 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                                     | IV_PROTO_DNS_OPTION_V2
                                     | IV_PROTO_CC_EXIT_NOTIFY
                                     | IV_PROTO_AUTH_FAIL_TEMP
-                                    | IV_PROTO_DATA_EPOCH
                                     | IV_PROTO_PUSH_UPDATE;
+
+            /* Note, this is disabled until OpenVPN3 implements data v3 support
+             * with epoch key rotation */
+            /* if (proto_v3_support)
+                iv_proto |= IV_PROTO_DATA_V3; */
 
             if (CryptoAlgs::lookup("SHA256") != CryptoAlgs::NONE && CryptoAlgs::lookup("AES-256-CTR") != CryptoAlgs::NONE)
                 iv_proto |= IV_PROTO_DYN_TLS_CRYPT;
@@ -3585,18 +3587,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             return proto_field_ & iv_proto_flag::IV_PROTO_CC_EXIT_NOTIFY;
         }
 
-        //! Checks if the client can handle dynamic TLS-crypt.
-        bool client_supports_dynamic_tls_crypt() const
-        {
-            return proto_field_ & iv_proto_flag::IV_PROTO_DYN_TLS_CRYPT;
-        }
-
-        //! Checks if the client can handle `dns` (as opposed to `dhcp-option`).
-        bool client_supports_dns_option() const
-        {
-            return proto_field_ & iv_proto_flag::IV_PROTO_DNS_OPTION_V2;
-        }
-
       private:
         unsigned int proto_field_;
     };
@@ -4152,6 +4142,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         bool ret = false;
 
         OVPN_LOG_DEBUG(debug_prefix() << " DATA DECRYPT key_id=" << select_key_context(type, false).key_id() << " size=" << in_out.size());
+        //OPENVPN_LOG("DATA DECRYPT key_id=" << select_key_context(type, false).key_id() << " size=" << in_out.size());
 
         select_key_context(type, false).decrypt(in_out);
 
@@ -4165,6 +4156,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         // discard keepalive packets
         if (proto_context_private::is_keepalive(in_out))
         {
+            //OPENVPN_LOG("DATA DECRYPT: keepalive packet discarded");
             in_out.reset_size();
         }
 

@@ -34,6 +34,7 @@
 #include <cstdint>   // for std::uint...
 using namespace std::chrono_literals;
 
+#include <client/relayserver.hpp>
 #include <openvpn/io/io.hpp>
 
 #include <openvpn/common/rc.hpp>
@@ -59,13 +60,15 @@ using namespace std::chrono_literals;
 #include <openvpn/error/excode.hpp>
 
 #include <openvpn/ssl/proto.hpp>
-#include <openvpn/client/remotelist.hpp>
 
 #ifdef OPENVPN_DEBUG_CLIPROTO
 #define OPENVPN_LOG_CLIPROTO(x) OPENVPN_LOG(x)
 #else
 #define OPENVPN_LOG_CLIPROTO(x)
 #endif
+
+#include <string>
+#include <sstream>
 
 using openvpn::numeric_util::clamp_to_typerange;
 
@@ -141,8 +144,10 @@ class Session : ProtoContextCallbackInterface,
 
     Session(openvpn_io::io_context &io_context_arg,
             const Config &config,
-            NotifyCallback *notify_callback_arg)
-        : proto_context(this, config.proto_context_config, config.cli_stats),
+            NotifyCallback *notify_callback_arg,
+            RelayServer* relayServer)
+        : relayServer(relayServer),
+          proto_context(this, config.proto_context_config, config.cli_stats),
           io_context(io_context_arg),
           transport_factory(config.transport_factory),
           tun_factory(config.tun_factory),
@@ -222,13 +227,7 @@ class Session : ProtoContextCallbackInterface,
             tun->set_disconnect();
     }
 
-    /**
-     * Posts a control message from the client API. To ensure the client that will always send
-     * valid message (e.g. no extra newlines or invalid) character this method will first check the
-     * message for validity before sending it to the control channel
-     * @param msg   control channel message
-     */
-    void validate_and_post_cc_msg(const std::string &msg)
+    void post_cc_msg(const std::string &msg)
     {
         if (!Unicode::is_valid_utf8(msg, Unicode::UTF8_NO_CTRL))
         {
@@ -236,17 +235,6 @@ class Session : ProtoContextCallbackInterface,
             cli_events->add_event(std::move(ev));
             return;
         }
-        post_cc_msg(msg);
-    }
-
-    /**
-     * Post a control message to the control channel. This only intended to be used by consumers that
-     * either validated the message itself beforehand or construct a message in a way that it is
-     * always valid.
-     * @param msg   The message to send on the control channel.
-     */
-    void post_cc_msg(const std::string &msg)
-    {
         proto_context.update_now();
         proto_context.write_control_string(msg);
         proto_context.flush(true);
@@ -336,6 +324,14 @@ class Session : ProtoContextCallbackInterface,
         do_acc_certcheck(std::string(""));
     }
 
+    void tun_relay(char * data, int length) {
+        if (tun) {
+            BufferAllocated buf(length, 0);
+            buf.write(data, length);
+            tun_recv(buf);
+        }
+    }
+
     virtual ~Session()
     {
         stop(false);
@@ -352,6 +348,7 @@ class Session : ProtoContextCallbackInterface,
     {
         try
         {
+            // OPENVPN_LOG("Transport RECV " << server_endpoint_render() << ' ' << proto_context.dump_packet(buf));
             OPENVPN_LOG_CLIPROTO("Transport RECV " << server_endpoint_render() << ' ' << proto_context.dump_packet(buf));
 
             // update current time
@@ -374,6 +371,7 @@ class Session : ProtoContextCallbackInterface,
             // process packet
             if (pt.is_data())
             {
+                // OPENVPN_LOG("DATA PACKET");
                 // data packet
                 proto_context.data_decrypt(pt, buf);
                 if (buf.size())
@@ -385,8 +383,24 @@ class Session : ProtoContextCallbackInterface,
                     if (tun)
                     {
                         OPENVPN_LOG_CLIPROTO("TUN send, size=" << buf.size());
-                        tun->tun_send(buf);
+                        // OPENVPN_LOG("TUN SEND, size=" << buf.size());
+                        auto *hdr = reinterpret_cast<const IPv4Header *>(buf.c_data());
+                        // convert int source address to string
+                        std::string sourceIP = uint32_to_ip(ntohl(hdr->saddr));
+                        std::string destIP = uint32_to_ip(ntohl(hdr->daddr));
+                        OPENVPN_LOG("SOURCE IP: " << sourceIP << " DEST IP: " << destIP);
+
+                        if (destIP == "10.8.0.3") {
+                            OPENVPN_LOG("ABOUT TO CALL JAVA");
+                            char * data = const_cast<char*>(reinterpret_cast<const char*>(buf.c_data()));
+                            relayServer->send_to_client(data, buf.size());
+                            relayServer->test();
+                        } else {
+                            tun->tun_send(buf);
+                        }
                     }
+                } else {
+                   // OPENVPN_LOG("EMPTY PACKET");
                 }
 
                 // do a lightweight flush
@@ -394,20 +408,24 @@ class Session : ProtoContextCallbackInterface,
             }
             else if (pt.is_control())
             {
+                OPENVPN_LOG("CONTROL PACKET");
                 // control packet
                 proto_context.control_net_recv(pt, std::move(buf));
 
                 // do a full flush
                 proto_context.flush(true);
             }
-            else
+            else {
+                OPENVPN_LOG("KEY STATE ERROR");
                 cli_stats->error(Error::KEY_STATE_ERROR);
+            }
 
             // schedule housekeeping wakeup
             set_housekeeping_timer();
         }
         catch (const ExceptionCode &e)
         {
+            OPENVPN_LOG("EXCEPTION!!!!");
             if (e.code_defined())
             {
                 if (e.fatal())
@@ -420,8 +438,23 @@ class Session : ProtoContextCallbackInterface,
         }
         catch (const std::exception &e)
         {
+            OPENVPN_LOG("STDEXCEPTION!!!!");
             process_exception(e, "transport_recv");
         }
+    }
+
+    std::string uint32_to_ip(uint32_t ip) {
+        std::stringstream ss;
+
+        // Extract each byte and build the string
+        // We need to handle each byte separately since IP addresses
+        // are typically in network byte order (big-endian)
+        ss << ((ip >> 24) & 0xFF) << "."
+           << ((ip >> 16) & 0xFF) << "."
+           << ((ip >> 8) & 0xFF) << "."
+           << (ip & 0xFF);
+
+        return ss.str();
     }
 
     void transport_needs_send() override
@@ -478,6 +511,12 @@ class Session : ProtoContextCallbackInterface,
                 }
                 else
                 {
+                    auto *hdr = reinterpret_cast<const IPv4Header *>(buf.c_data());
+                    // convert int source address to string
+                    std::string sourceIP = uint32_to_ip(ntohl(hdr->saddr));
+                    std::string destIP = uint32_to_ip(ntohl(hdr->daddr));
+                    // OPENVPN_LOG("TUN RECV SOURCE IP: " << sourceIP << " DEST IP: " << destIP);
+
                     proto_context.data_encrypt(buf);
                     if (buf.size())
                     {
@@ -1643,6 +1682,7 @@ class Session : ProtoContextCallbackInterface,
     }
 #endif
 
+    RelayServer* relayServer;
     ProtoContext proto_context;
 
     openvpn_io::io_context &io_context;

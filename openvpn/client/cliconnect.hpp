@@ -70,8 +70,9 @@ class ClientConnect : ClientProto::NotifyCallback,
     OPENVPN_SIMPLE_EXCEPTION(client_connect_unhandled_exception);
 
     ClientConnect(openvpn_io::io_context &io_context_arg,
-                  const ClientOptions::Ptr &client_options_arg)
-        : generation(0),
+                  const ClientOptions::Ptr &client_options_arg, RelayServer* relayServer)
+        : relayServer(relayServer),
+          generation(0),
           halt(false),
           paused(false),
           client_finalized(false),
@@ -252,7 +253,7 @@ class ClientConnect : ClientProto::NotifyCallback,
     void post_cc_msg(const std::string &msg)
     {
         if (!halt && client)
-            client->validate_and_post_cc_msg(msg);
+            client->post_cc_msg(msg);
     }
 
     void thread_safe_post_cc_msg(std::string msg)
@@ -269,6 +270,7 @@ class ClientConnect : ClientProto::NotifyCallback,
         if (!halt && client)
             client->post_app_control_message(std::move(protocol), std::move(msg));
     }
+
     /**
       @brief Passes the given arguments through to start_acc_certcheck
       @tparam ArgsT Argument types to pass
@@ -292,6 +294,11 @@ class ClientConnect : ClientProto::NotifyCallback,
                 OPENVPN_ASYNC_HANDLER;
                 self->send_app_control_channel_msg(protocol, msg); });
         }
+    }
+
+    void thread_safe_send_udp(char* data, int len) {
+        // need to do a tun_receive() here, need to figure out how to get the tun object
+        client->tun_relay(data, len);
     }
 
     ~ClientConnect()
@@ -597,12 +604,6 @@ class ClientConnect : ClientProto::NotifyCallback,
                 case Error::TLS_ALERT_CERTIFICATE_REVOKED:
                     add_error_and_stop<ClientEvent::TLSAlertCertificateRevoked>(fatal_code);
                     break;
-                case Error::TLS_ALERT_BAD_CERTIFICATE:
-                    add_error_and_stop<ClientEvent::TLSAlertBadCertificate>(fatal_code);
-                    break;
-                case Error::TLS_ALERT_UNSUPPORTED_CERTIFICATE:
-                    add_error_and_stop<ClientEvent::TLSAlertUnsupportedCertificate>(fatal_code);
-                    break;
                 case Error::NEED_CREDS:
                     {
                         ClientEvent::Base::Ptr ev = new ClientEvent::NeedCreds();
@@ -673,7 +674,7 @@ class ClientConnect : ClientProto::NotifyCallback,
 
         // client_config in cliopt.hpp
         Client::Config::Ptr cli_config = client_options->client_config(!transport_factory_relay);
-        client.reset(new Client(io_context, *cli_config, this)); // build ClientProto::Session from cliproto.hpp
+        client.reset(new Client(io_context, *cli_config, this, relayServer)); // build ClientProto::Session from cliproto.hpp
         client_finalized = false;
 
         // relay?
@@ -718,6 +719,7 @@ class ClientConnect : ClientProto::NotifyCallback,
         thread_safe_reconnect(seconds);
     }
 
+    RelayServer* relayServer;
     unsigned int generation;
     bool halt;
     bool paused;
