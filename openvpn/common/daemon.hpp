@@ -4,20 +4,10 @@
 //               packet encryption, packet authentication, and
 //               packet compression.
 //
-//    Copyright (C) 2012-2017 OpenVPN Inc.
+//    Copyright (C) 2012- OpenVPN Inc.
 //
-//    This program is free software: you can redistribute it and/or modify
-//    it under the terms of the GNU Affero General Public License Version 3
-//    as published by the Free Software Foundation.
+//    SPDX-License-Identifier: MPL-2.0 OR AGPL-3.0-only WITH openvpn3-openssl-exception
 //
-//    This program is distributed in the hope that it will be useful,
-//    but WITHOUT ANY WARRANTY; without even the implied warranty of
-//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-//    GNU Affero General Public License for more details.
-//
-//    You should have received a copy of the GNU Affero General Public License
-//    along with this program in the COPYING file.
-//    If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef OPENVPN_COMMON_DAEMON_H
 #define OPENVPN_COMMON_DAEMON_H
@@ -34,78 +24,130 @@
 #include <openvpn/common/logrotate.hpp>
 #include <openvpn/common/redir.hpp>
 #include <openvpn/common/usergroup.hpp>
+#include <openvpn/common/logsetup.hpp>
 
 namespace openvpn {
 
-  OPENVPN_EXCEPTION(daemon_err);
+OPENVPN_EXCEPTION(daemon_err);
 
-  inline void log_setup(const std::string& log_fn,
-			const SetUserGroup* user_group,
-			const bool log_append,
-			const int log_versions,
-			const bool stdin_to_dev_null,
-			const bool combine_out_err)
-  {
-    if (!log_append && log_versions >= 1)
-      log_rotate(log_fn, log_versions);
-    RedirectStd redir(stdin_to_dev_null ? "/dev/null" : "",
-		      log_fn,
-		      log_append ? RedirectStd::FLAGS_APPEND : RedirectStd::FLAGS_OVERWRITE,
-		      RedirectStd::MODE_USER_GROUP,
-		      combine_out_err);
-    // if user_group specified, do chown on log file
-    try {
-      if (user_group && redir.out.defined())
-	user_group->chown(redir.out(), log_fn);
+class LogReopen : public LogSetup
+{
+  public:
+    LogReopen(const std::string &log_fn,
+              const bool combine_out_err)
+        : log_fn_(log_fn),
+          combine_out_err_(combine_out_err)
+    {
     }
-    catch (const std::exception&)
-      {
-      }
+
+    virtual void reopen() override
+    {
+        try
+        {
+            // open redirection log file, but don't redirect yet
+            RedirectStd redir(std::string(),
+                              log_fn_,
+                              RedirectStd::FLAGS_APPEND,
+                              RedirectStd::MODE_USER_GROUP,
+                              combine_out_err_);
+
+            // now do the redirect
+            redir.redirect();
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "LogReopen: " << e.what() << std::endl;
+        }
+    }
+
+  private:
+    const std::string log_fn_;
+    const bool combine_out_err_;
+};
+
+inline LogSetup::Ptr log_setup(const std::string &log_fn,
+                               const SetUserGroup *user_group,
+                               const bool log_append,
+                               const int log_versions,
+                               const bool stdin_to_dev_null,
+                               const bool combine_out_err)
+{
+    if (!log_append && log_versions >= 1)
+        log_rotate(log_fn, log_versions);
+    RedirectStd redir(stdin_to_dev_null ? "/dev/null" : "",
+                      log_fn,
+                      log_append ? RedirectStd::FLAGS_APPEND : RedirectStd::FLAGS_OVERWRITE,
+                      RedirectStd::MODE_USER_GROUP,
+                      combine_out_err);
+    // if user_group specified, do chown on log file
+    try
+    {
+        if (user_group && redir.out.defined())
+            user_group->chown(redir.out(), log_fn);
+    }
+    catch (const std::exception &)
+    {
+    }
     redir.redirect();
-  }
 
-  inline void daemonize()
-  {
+    // possibly return a LogReopen object
+    if (!log_versions)
+        return LogSetup::Ptr(new LogReopen(log_fn, combine_out_err));
+    else
+        return LogSetup::Ptr();
+}
+
+inline void daemonize()
+{
+    // ignore daemon() deprecated on macOS
+#if defined(__APPLE__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
     if (daemon(1, 1) < 0)
-      throw daemon_err("daemon() failed");
-  }
+        throw daemon_err("daemon() failed");
+#if defined(__APPLE__)
+#pragma clang diagnostic pop
+#endif
+}
 
-  inline void daemonize(const std::string& log_fn,
-			const SetUserGroup* user_group,
-			const bool log_append,
-			const int log_versions)
-  {
-    log_setup(log_fn, user_group, log_append, log_versions, true, true);
+inline LogSetup::Ptr daemonize(const std::string &log_fn,
+                               const SetUserGroup *user_group,
+                               const bool log_append,
+                               const int log_versions)
+{
+    LogSetup::Ptr ret = log_setup(log_fn, user_group, log_append, log_versions, true, true);
     daemonize();
-  }
+    return ret;
+}
 
-  inline void write_pid(const std::string& fn)
-  {
+inline void write_pid(const std::string &fn)
+{
     write_string(fn, to_string(::getpid()) + '\n');
-  }
+}
 
-  class WritePid
-  {
+class WritePid
+{
   public:
     WritePid(const char *pid_fn_arg) // must remain in scope for lifetime of object
-      : pid_fn(pid_fn_arg)
+        : pid_fn(pid_fn_arg)
     {
-      if (pid_fn)
-	write_pid(pid_fn);
+        if (pid_fn)
+            write_pid(pid_fn);
     }
 
     ~WritePid()
     {
-      if (pid_fn)
-	::unlink(pid_fn);
+        if (pid_fn)
+            ::unlink(pid_fn);
     }
 
   private:
-    WritePid(const WritePid&) = delete;
-    WritePid& operator=(const WritePid&) = delete;
+    WritePid(const WritePid &) = delete;
+    WritePid &operator=(const WritePid &) = delete;
 
     const char *const pid_fn;
-  };
-}
+};
+} // namespace openvpn
 
 #endif

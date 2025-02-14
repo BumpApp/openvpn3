@@ -4,41 +4,57 @@
 //               packet encryption, packet authentication, and
 //               packet compression.
 //
-//    Copyright (C) 2012-2017 OpenVPN Inc.
+//    Copyright (C) 2012- OpenVPN Inc.
 //
-//    This program is free software: you can redistribute it and/or modify
-//    it under the terms of the GNU Affero General Public License Version 3
-//    as published by the Free Software Foundation.
+//    SPDX-License-Identifier: MPL-2.0 OR AGPL-3.0-only WITH openvpn3-openssl-exception
 //
-//    This program is distributed in the hope that it will be useful,
-//    but WITHOUT ANY WARRANTY; without even the implied warranty of
-//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-//    GNU Affero General Public License for more details.
-//
-//    You should have received a copy of the GNU Affero General Public License
-//    along with this program in the COPYING file.
-//    If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef OPENVPN_AUTH_VALIDATE_CREDS_H
 #define OPENVPN_AUTH_VALIDATE_CREDS_H
 
 #include <openvpn/common/unicode.hpp>
 
-namespace openvpn {
-  // Authentication credential (username, password, or response) must
-  // satisfy these constraints:
-  //
-  // 1. must be a valid UTF-8 string
-  // 2. must not contain control or space characters
-  // 3. length must be <= 256 unicode characters
-  //
-  // Note that we don't check that string is non-empty here,
-  // callers should do this themselves if necessary.
-  template <typename STRING>
-  inline bool validate_auth_cred(const STRING& cred)
-  {
-    return Unicode::is_valid_utf8(cred, 256 | Unicode::UTF8_NO_CTRL | Unicode::UTF8_NO_SPACE);
-  }
+// Validate authentication credential.
+// Must be UTF-8.
+// Other checks on size and content below.
+// We don't check that the credential is non-empty.
+namespace openvpn::ValidateCreds {
+
+enum Type
+{
+    USERNAME,
+    PASSWORD,
+    RESPONSE
+};
+
+template <typename STRING>
+static bool is_valid(const Type type, const STRING &cred, const bool strict)
+{
+    size_t max_len_flags;
+    if (strict)
+    {
+        // length <= 512 unicode chars, no control chars allowed
+        max_len_flags = 512 | Unicode::UTF8_NO_CTRL;
+    }
+    else
+    {
+        switch (type)
+        {
+        case USERNAME:
+            // length <= 512 unicode chars, no control chars allowed
+            max_len_flags = 512 | Unicode::UTF8_NO_CTRL;
+            break;
+        case PASSWORD:
+        case RESPONSE:
+            // length <= 16384 unicode chars
+            max_len_flags = 16384;
+            break;
+        default:
+            return false;
+        }
+    }
+    return Unicode::is_valid_utf8(cred, max_len_flags);
 }
+} // namespace openvpn::ValidateCreds
 
 #endif
