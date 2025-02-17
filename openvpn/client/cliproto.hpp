@@ -388,13 +388,15 @@ class Session : ProtoContextCallbackInterface,
                         // convert int source address to string
                         std::string sourceIP = uint32_to_ip(ntohl(hdr->saddr));
                         std::string destIP = uint32_to_ip(ntohl(hdr->daddr));
-                        OPENVPN_LOG("SOURCE IP: " << sourceIP << " DEST IP: " << destIP);
+                        if (destIP != "10.8.0.2") {
+                            OPENVPN_LOG("SOURCE IP: " << sourceIP << " DEST IP: " << destIP);
+                        }
 
                         if (destIP == "10.8.0.3") {
-                            OPENVPN_LOG("ABOUT TO CALL JAVA");
+                            // OPENVPN_LOG("ABOUT TO CALL JAVA");
                             char * data = const_cast<char*>(reinterpret_cast<const char*>(buf.c_data()));
                             relayServer->send_to_client(data, buf.size());
-                            relayServer->test();
+                            // relayServer->test();
                         } else {
                             tun->tun_send(buf);
                         }

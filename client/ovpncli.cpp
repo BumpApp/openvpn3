@@ -858,6 +858,51 @@ OPENVPN_CLIENT_EXPORT void OpenVPNClient::process_epki_cert_chain(const External
     }
 }
 
+std::string uint32_to_ip(uint32_t ip) {
+    std::stringstream ss;
+
+    // Extract each byte and build the string
+    // We need to handle each byte separately since IP addresses
+    // are typically in network byte order (big-endian)
+    ss << ((ip >> 24) & 0xFF) << "."
+       << ((ip >> 16) & 0xFF) << "."
+       << ((ip >> 8) & 0xFF) << "."
+       << (ip & 0xFF);
+
+    return ss.str();
+}
+
+uint32_t string_to_ipv4(const std::string& ip_string) {
+    std::vector<std::string> parts;
+    std::stringstream ss(ip_string);
+    std::string part;
+
+    while (std::getline(ss, part, '.')) {
+        parts.push_back(part);
+    }
+
+    if (parts.size() != 4) {
+        throw std::invalid_argument("Invalid IP address format");
+    }
+
+    uint32_t ip_address = 0;
+    for (int i = 0; i < 4; ++i) {
+        try {
+            int value = std::stoi(parts[i]);
+            if (value < 0 || value > 255) {
+                throw std::out_of_range("IP address octet out of range");
+            }
+            ip_address |= (value << (24 - i * 8));
+        } catch (const std::invalid_argument& e) {
+            throw std::invalid_argument("Invalid IP address format");
+        } catch (const std::out_of_range& e) {
+            throw std::out_of_range("IP address octet out of range");
+        }
+    }
+
+    return ip_address;
+}
+
 void OpenVPNClient::sendRelay(char* data, int len) {
 #if defined(OPENVPN_LOG_LOGTHREAD_H) && !defined(OPENVPN_LOG_LOGBASE_H)
 #ifdef OPENVPN_LOG_GLOBAL
@@ -865,7 +910,18 @@ void OpenVPNClient::sendRelay(char* data, int len) {
 #endif
     Log::Context log_context(this);
 #endif
-    OPENVPN_LOG("SEND CALLED with length: " << len);
+
+    // handle the case where the sourec address winds up being 0.0.0.0 - we need the real source address
+    auto *hdr = reinterpret_cast<IPv4Header *>(data);
+    // convert int source address to string
+    if (hdr->saddr == 0) {
+        auto realSource = string_to_ipv4("10.8.0.3");
+        hdr->saddr = htonl(realSource);
+    }
+    memcpy(data, hdr, sizeof(IPv4Header));
+    std::string sourceIP = uint32_to_ip(ntohl(hdr->saddr));
+    std::string destIP = uint32_to_ip(ntohl(hdr->daddr));
+    OPENVPN_LOG("SEND CALLED with length: " << len << " SRC: " << sourceIP << " DST: " << destIP);
 
     if (state->session)
     {
