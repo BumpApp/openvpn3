@@ -915,6 +915,7 @@ void OpenVPNClient::sendRelay(char* data, int len) {
     auto *hdr = reinterpret_cast<IPv4Header *>(data);
     // convert int source address to string
     if (hdr->saddr == 0) {
+        OPENVPN_LOG("!!!!!!!!!! 0.0.0.0");
         auto realSource = string_to_ipv4("10.8.0.3");
         hdr->saddr = htonl(realSource);
     }
