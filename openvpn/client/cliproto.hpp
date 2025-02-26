@@ -384,14 +384,26 @@ class Session : ProtoContextCallbackInterface,
                     {
                         OPENVPN_LOG_CLIPROTO("TUN send, size=" << buf.size());
                         // OPENVPN_LOG("TUN SEND, size=" << buf.size());
-                        auto *hdr = reinterpret_cast<const IPv4Header *>(buf.c_data());
-                        // convert int source address to string
-                        std::string sourceIP = uint32_to_ip(ntohl(hdr->saddr));
-                        std::string destIP = uint32_to_ip(ntohl(hdr->daddr));
+                        // determine if ipv4 or ipv6 header
+                        std::string sourceIP;
+                        std::string destIP;
+
+                        // bottom four bits of the first byte should be 4 for IPv4
+                        if (determineIPVersion(buf.c_data(), buf.size()) == 4)
+                        {
+                            auto *hdr = reinterpret_cast<const IPv4Header *>(buf.c_data());
+                            sourceIP = in_addr_to_string(hdr->saddr);
+                            destIP = in_addr_to_string(hdr->daddr);
+                        } else {
+                            auto *hdr = reinterpret_cast<const IPv6Header *>(buf.c_data());
+                            sourceIP = in6_addr_to_string(hdr->saddr);
+                            destIP = in6_addr_to_string(hdr->daddr);
+                            // OPENVPN_LOG("IPv6 PACKET SOURCE IP: " << sourceIP << " DEST IP: " << destIP);
+                        }
 
                         // 10.8.0.2 is the relay server, any other address we want to use the relay
                         // otherwise we do a normal send.
-                        if (destIP != "10.8.0.2") {
+                        if (destIP != "10.8.0.2" && destIP != "2600:1f18:43d9:123::1000") {
                             // OPENVPN_LOG("ABOUT TO CALL JAVA");
                             char * data = const_cast<char*>(reinterpret_cast<const char*>(buf.c_data()));
                             relayServer->send_to_client(data, buf.size());
@@ -444,18 +456,53 @@ class Session : ProtoContextCallbackInterface,
         }
     }
 
-    std::string uint32_to_ip(uint32_t ip) {
-        std::stringstream ss;
+    /**
+ * Determine if a byte array contains an IPv4 or IPv6 header
+ *
+ * @param data Pointer to the byte array
+ * @param length Length of the byte array
+ * @return 4 for IPv4, 6 for IPv6, 0 if neither or insufficient data
+ */
+    int determineIPVersion(const uint8_t* data, size_t length) {
+        // Need at least 1 byte to check the version
+        if (data == nullptr || length < 1) {
+            return 0;
+        }
 
-        // Extract each byte and build the string
-        // We need to handle each byte separately since IP addresses
-        // are typically in network byte order (big-endian)
-        ss << ((ip >> 24) & 0xFF) << "."
-           << ((ip >> 16) & 0xFF) << "."
-           << ((ip >> 8) & 0xFF) << "."
-           << (ip & 0xFF);
+        // For IPv4, the first 4 bits (version) should be 0100 (4)
+        // For IPv6, the first 4 bits (version) should be 0110 (6)
 
-        return ss.str();
+        // Extract the version from the first byte
+        // For IPv4, it's the high 4 bits of the first byte
+        // For IPv6, it's the high 4 bits of the first byte
+        uint8_t version = (data[0] >> 4) & 0x0F;
+
+        if (version == 4) {
+            return 4;  // IPv4
+        } else if (version == 6) {
+            return 6;  // IPv6
+        } else {
+            return 0;  // Neither IPv4 nor IPv6
+        }
+    }
+
+    std::string in_addr_to_string(uint32_t ip_addr) {
+        struct in_addr addr;
+        addr.s_addr = ip_addr;  // Assign the uint32_t to the s_addr field
+
+        char buffer[INET_ADDRSTRLEN];
+        if (inet_ntop(AF_INET, &addr, buffer, INET_ADDRSTRLEN) == nullptr) {
+            return ""; // Conversion failed
+        }
+        return std::string(buffer);
+    }
+
+    std::string in6_addr_to_string(const struct in6_addr& addr) {
+        char buffer[INET6_ADDRSTRLEN];
+        if (inet_ntop(AF_INET6, &addr, buffer, INET6_ADDRSTRLEN) == nullptr) {
+            return ""; // Conversion failed
+        }
+        return std::string(buffer);
     }
 
     void transport_needs_send() override
@@ -514,8 +561,8 @@ class Session : ProtoContextCallbackInterface,
                 {
                     auto *hdr = reinterpret_cast<const IPv4Header *>(buf.c_data());
                     // convert int source address to string
-                    std::string sourceIP = uint32_to_ip(ntohl(hdr->saddr));
-                    std::string destIP = uint32_to_ip(ntohl(hdr->daddr));
+                    std::string sourceIP = in_addr_to_string(hdr->saddr);
+                    std::string destIP = in_addr_to_string(hdr->daddr);
                     // OPENVPN_LOG("TUN RECV SOURCE IP: " << sourceIP << " DEST IP: " << destIP);
 
                     proto_context.data_encrypt(buf);
