@@ -403,7 +403,8 @@ class Session : ProtoContextCallbackInterface,
 
                         // 10.8.0.2 is the relay server, any other address we want to use the relay
                         // otherwise we do a normal send.
-                        if (destIP != "10.8.0.2" && destIP != "2600:1f18:43d9:123::1000") {
+                        // for aws: 2600:1f18:43d9:123::1000
+                        if (destIP != "10.8.0.2" && destIP != "2601:640:8b00:90f0:1::1000") {
                             // OPENVPN_LOG("ABOUT TO CALL JAVA");
                             char * data = const_cast<char*>(reinterpret_cast<const char*>(buf.c_data()));
                             relayServer->send_to_client(data, buf.size());
@@ -457,12 +458,12 @@ class Session : ProtoContextCallbackInterface,
     }
 
     /**
- * Determine if a byte array contains an IPv4 or IPv6 header
- *
- * @param data Pointer to the byte array
- * @param length Length of the byte array
- * @return 4 for IPv4, 6 for IPv6, 0 if neither or insufficient data
- */
+     * Determine if a byte array contains an IPv4 or IPv6 header
+     *
+     * @param data Pointer to the byte array
+     * @param length Length of the byte array
+     * @return 4 for IPv4, 6 for IPv6, 0 if neither or insufficient data
+     */
     int determineIPVersion(const uint8_t* data, size_t length) {
         // Need at least 1 byte to check the version
         if (data == nullptr || length < 1) {

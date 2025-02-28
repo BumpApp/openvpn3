@@ -903,6 +903,55 @@ uint32_t string_to_ipv4(const std::string& ip_string) {
     return ip_address;
 }
 
+/**
+ * Determine if a byte array contains an IPv4 or IPv6 header
+ *
+ * @param data Pointer to the byte array
+ * @param length Length of the byte array
+ * @return 4 for IPv4, 6 for IPv6, 0 if neither or insufficient data
+ */
+int determineIPVersion(char * data, size_t length) {
+    // Need at least 1 byte to check the version
+    if (data == nullptr || length < 1) {
+        return 0;
+    }
+
+    // For IPv4, the first 4 bits (version) should be 0100 (4)
+    // For IPv6, the first 4 bits (version) should be 0110 (6)
+
+    // Extract the version from the first byte
+    // For IPv4, it's the high 4 bits of the first byte
+    // For IPv6, it's the high 4 bits of the first byte
+    uint8_t version = (data[0] >> 4) & 0x0F;
+
+    if (version == 4) {
+        return 4;  // IPv4
+    } else if (version == 6) {
+        return 6;  // IPv6
+    } else {
+        return 0;  // Neither IPv4 nor IPv6
+    }
+}
+
+std::string in_addr_to_string(uint32_t ip_addr) {
+    struct in_addr addr;
+    addr.s_addr = ip_addr;  // Assign the uint32_t to the s_addr field
+
+    char buffer[INET_ADDRSTRLEN];
+    if (inet_ntop(AF_INET, &addr, buffer, INET_ADDRSTRLEN) == nullptr) {
+        return ""; // Conversion failed
+    }
+    return std::string(buffer);
+}
+
+std::string in6_addr_to_string(const struct in6_addr& addr) {
+    char buffer[INET6_ADDRSTRLEN];
+    if (inet_ntop(AF_INET6, &addr, buffer, INET6_ADDRSTRLEN) == nullptr) {
+        return ""; // Conversion failed
+    }
+    return std::string(buffer);
+}
+
 void OpenVPNClient::sendRelay(char* data, int len) {
 #if defined(OPENVPN_LOG_LOGTHREAD_H) && !defined(OPENVPN_LOG_LOGBASE_H)
 #ifdef OPENVPN_LOG_GLOBAL
@@ -911,19 +960,31 @@ void OpenVPNClient::sendRelay(char* data, int len) {
     Log::Context log_context(this);
 #endif
 
-    // handle the case where the sourec address winds up being 0.0.0.0 - we need the real source address
-    auto *hdr = reinterpret_cast<IPv4Header *>(data);
-    // convert int source address to string
-    if (hdr->saddr == 0) {
-        OPENVPN_LOG("!!!!!!!!!! 0.0.0.0");
-        auto realSource = string_to_ipv4("10.8.0.3");
-        hdr->saddr = htonl(realSource);
-    }
-    memcpy(data, hdr, sizeof(IPv4Header));
-    std::string sourceIP = uint32_to_ip(ntohl(hdr->saddr));
-    std::string destIP = uint32_to_ip(ntohl(hdr->daddr));
-    OPENVPN_LOG("SEND CALLED with length: " << len << " SRC: " << sourceIP << " DST: " << destIP);
+//    // determine if ipv4 or ipv6 header
+//    std::string sourceIP;
+//    std::string destIP;
+//
+//    // bottom four bits of the first byte should be 4 for IPv4
+//    if (determineIPVersion(data, len) == 4)
+//    {
+//        auto *hdr = reinterpret_cast<IPv4Header *>(data);
+//        sourceIP = in_addr_to_string(hdr->saddr);
+//        destIP = in_addr_to_string(hdr->daddr);
+//
+//        // handle the case where the sourec address winds up being 0.0.0.0 - we need the real source address
+//        if (hdr->saddr == 0) {
+//            OPENVPN_LOG("!!!!!!!!!! 0.0.0.0");
+//            auto realSource = string_to_ipv4("10.8.0.3");
+//            hdr->saddr = htonl(realSource);
+//        }
+//        memcpy(data, hdr, sizeof(IPv4Header));
+//    } else {
+//        auto *hdr = reinterpret_cast<const IPv6Header *>(data);
+//        sourceIP = in6_addr_to_string(hdr->saddr);
+//        destIP = in6_addr_to_string(hdr->daddr);
+//    }
 
+//    OPENVPN_LOG("RELAY SEND CALLED with length: " << len << " SRC: " << sourceIP << " DST: " << destIP);
     if (state->session)
     {
         ClientConnect *session = state->session.get();
