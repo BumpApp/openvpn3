@@ -37,6 +37,21 @@ using namespace std::chrono_literals;
 #include <client/relayserver.hpp>
 #include <openvpn/io/io.hpp>
 
+#ifdef _WIN32
+// Windows implementation
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #include <iphlpapi.h>
+    #pragma comment(lib, "iphlpapi.lib")
+    #pragma comment(lib, "ws2_32.lib")
+#else
+// POSIX (Linux, macOS, etc.) implementation
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#endif
+
 #include <openvpn/common/rc.hpp>
 #include <openvpn/common/count.hpp>
 #include <openvpn/common/string.hpp>
@@ -404,12 +419,15 @@ class Session : ProtoContextCallbackInterface,
                         // 10.8.0.2 is the relay server, any other address we want to use the relay
                         // otherwise we do a normal send.
                         // for aws: 2600:1f18:43d9:123::1000
-                        if (destIP != "10.8.0.2" && destIP != "2601:640:8b00:90f0:1::1000") {
-                            // OPENVPN_LOG("ABOUT TO CALL JAVA");
+                        // logIPS();
+                        auto ips = getLocalIPAddresses();
+                        if (std::find(ips.begin(), ips.end(), destIP) == ips.end()) {
+                            OPENVPN_LOG("SENDING TO RELAY SERVER: " << destIP);
                             char * data = const_cast<char*>(reinterpret_cast<const char*>(buf.c_data()));
                             relayServer->send_to_client(data, buf.size());
                             // relayServer->test();
                         } else {
+                            // OPENVPN_LOG("SENDING TO TUN: " << destIP);
                             tun->tun_send(buf);
                         }
                     }
@@ -504,6 +522,139 @@ class Session : ProtoContextCallbackInterface,
             return ""; // Conversion failed
         }
         return std::string(buffer);
+    }
+
+    void logIPS() {
+        auto ips = getLocalIPAddresses();
+        std::stringstream ss;
+        for (auto ip : ips)
+        {
+            ss << ip << " ";
+        }
+        OPENVPN_LOG("MY IPS: " << ss.str());
+    }
+
+    std::vector<std::string> getLocalIPAddresses() {
+        std::vector<std::string> ipAddresses;
+
+#ifdef _WIN32
+        // Initialize Winsock
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        std::cerr << "WSAStartup failed" << std::endl;
+        return ipAddresses;
+    }
+
+    // Get adapter addresses
+    ULONG outBufLen = 15000; // Initial buffer size
+    PIP_ADAPTER_ADDRESSES pAddresses = nullptr;
+    ULONG Iterations = 0;
+    DWORD dwRetVal = 0;
+
+    do {
+        pAddresses = (IP_ADAPTER_ADDRESSES*)malloc(outBufLen);
+        if (pAddresses == nullptr) {
+            std::cerr << "Memory allocation failed" << std::endl;
+            WSACleanup();
+            return ipAddresses;
+        }
+
+        dwRetVal = GetAdaptersAddresses(
+            AF_UNSPEC,
+            GAA_FLAG_INCLUDE_PREFIX,
+            nullptr,
+            pAddresses,
+            &outBufLen
+        );
+
+        if (dwRetVal == ERROR_BUFFER_OVERFLOW) {
+            free(pAddresses);
+            pAddresses = nullptr;
+            outBufLen *= 2; // Double the buffer size
+        } else {
+            break;
+        }
+
+        Iterations++;
+    } while ((dwRetVal == ERROR_BUFFER_OVERFLOW) && (Iterations < 3));
+
+    if (dwRetVal == NO_ERROR) {
+        // Iterate through all adapters
+        for (PIP_ADAPTER_ADDRESSES pCurrAddresses = pAddresses; pCurrAddresses != nullptr; pCurrAddresses = pCurrAddresses->Next) {
+            // Skip loopback adapters
+            if (pCurrAddresses->IfType == IF_TYPE_SOFTWARE_LOOPBACK) {
+                continue;
+            }
+
+            // Iterate through all IP addresses
+            for (PIP_ADAPTER_UNICAST_ADDRESS pUnicast = pCurrAddresses->FirstUnicastAddress; pUnicast != nullptr; pUnicast = pUnicast->Next) {
+                SOCKET_ADDRESS sockAddr = pUnicast->Address;
+                sockaddr* pSockAddr = sockAddr.lpSockaddr;
+
+                // Convert to readable format
+                char ipStr[INET6_ADDRSTRLEN];
+
+                // Handle IPv4
+                if (pSockAddr->sa_family == AF_INET) {
+                    sockaddr_in* ipv4 = reinterpret_cast<sockaddr_in*>(pSockAddr);
+                    inet_ntop(AF_INET, &(ipv4->sin_addr), ipStr, INET_ADDRSTRLEN);
+                    ipAddresses.push_back(std::string(ipStr));
+                }
+                // Handle IPv6
+                else if (pSockAddr->sa_family == AF_INET6) {
+                    sockaddr_in6* ipv6 = reinterpret_cast<sockaddr_in6*>(pSockAddr);
+                    inet_ntop(AF_INET6, &(ipv6->sin6_addr), ipStr, INET6_ADDRSTRLEN);
+                    ipAddresses.push_back(std::string(ipStr));
+                }
+            }
+        }
+    }
+
+    if (pAddresses) {
+        free(pAddresses);
+    }
+    WSACleanup();
+
+#else
+        // POSIX implementation (Linux, macOS, etc.)
+        struct ifaddrs* ifAddrStruct = nullptr;
+        struct ifaddrs* ifa = nullptr;
+
+        if (getifaddrs(&ifAddrStruct) == -1) {
+            std::cerr << "getifaddrs failed" << std::endl;
+            return ipAddresses;
+        }
+
+        // Walk through linked list of interfaces
+        for (ifa = ifAddrStruct; ifa != nullptr; ifa = ifa->ifa_next) {
+            if (ifa->ifa_addr == nullptr) {
+                continue;
+            }
+
+            // For IPv4 addresses
+            if (ifa->ifa_addr->sa_family == AF_INET) {
+                // Get IPv4 address
+                void* tmpAddrPtr = &((struct sockaddr_in*)ifa->ifa_addr)->sin_addr;
+                char addressBuffer[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
+                ipAddresses.push_back(std::string(addressBuffer));
+            }
+                // For IPv6 addresses
+            else if (ifa->ifa_addr->sa_family == AF_INET6) {
+                // Get IPv6 address
+                void* tmpAddrPtr = &((struct sockaddr_in6*)ifa->ifa_addr)->sin6_addr;
+                char addressBuffer[INET6_ADDRSTRLEN];
+                inet_ntop(AF_INET6, tmpAddrPtr, addressBuffer, INET6_ADDRSTRLEN);
+                ipAddresses.push_back(std::string(addressBuffer));
+            }
+        }
+
+        if (ifAddrStruct != nullptr) {
+            freeifaddrs(ifAddrStruct);
+        }
+#endif
+
+        return ipAddresses;
     }
 
     void transport_needs_send() override
