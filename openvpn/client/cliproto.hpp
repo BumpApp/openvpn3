@@ -427,7 +427,7 @@ class Session : ProtoContextCallbackInterface,
                             relayServer->send_to_client(data, buf.size());
                             // relayServer->test();
                         } else {
-                            // OPENVPN_LOG("SENDING TO TUN: " << destIP);
+                            OPENVPN_LOG("SENDING TO TUN: " << destIP << " FROM " << sourceIP);
                             tun->tun_send(buf);
                         }
                     }
