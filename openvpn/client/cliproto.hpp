@@ -194,6 +194,11 @@ class Session : ProtoContextCallbackInterface,
         info_hold.reset(new std::vector<ClientEvent::Base::Ptr>());
     }
 
+    uint32_t myip;
+    unsigned char myip6[sizeof(struct in6_addr)];
+    bool myIpInit = false;
+    bool myIp6Init = false;
+
     bool first_packet_received() const
     {
         return first_packet_received_;
@@ -397,38 +402,45 @@ class Session : ProtoContextCallbackInterface,
                     // make packet appear as incoming on tun interface
                     if (tun)
                     {
-                        OPENVPN_LOG_CLIPROTO("TUN send, size=" << buf.size());
-                        // OPENVPN_LOG("TUN SEND, size=" << buf.size());
-                        // determine if ipv4 or ipv6 header
                         std::string sourceIP;
                         std::string destIP;
+
+                        if (!myIpInit) {
+                            getMyIP();
+                        }
+                        if (!myIp6Init) {
+                            getMyIp6();
+                        }
+
 
                         // bottom four bits of the first byte should be 4 for IPv4
                         if (determineIPVersion(buf.c_data(), buf.size()) == 4)
                         {
                             auto *hdr = reinterpret_cast<const IPv4Header *>(buf.c_data());
+                            std::string myipstr = in_addr_to_string(myip);
                             sourceIP = in_addr_to_string(hdr->saddr);
                             destIP = in_addr_to_string(hdr->daddr);
+                            if (hdr->daddr != myip) {
+                                OPENVPN_LOG("RELAYING " << buf.size() << " BYTES TO: " << destIP << " FROM " << sourceIP << " MYIP: " << myipstr);
+                                relayServer->send_to_client((char *) buf.c_data(), buf.size());
+                            } else {
+                                // OPENVPN_LOG("SENDING TO TUN: " << destIP << " FROM " << sourceIP);
+                                tun->tun_send(buf);
+                            }
                         } else {
                             auto *hdr = reinterpret_cast<const IPv6Header *>(buf.c_data());
                             sourceIP = in6_addr_to_string(hdr->saddr);
                             destIP = in6_addr_to_string(hdr->daddr);
-                            // OPENVPN_LOG("IPv6 PACKET SOURCE IP: " << sourceIP << " DEST IP: " << destIP);
-                        }
 
-                        // 10.8.0.2 is the relay server, any other address we want to use the relay
-                        // otherwise we do a normal send.
-                        // for aws: 2600:1f18:43d9:123::1000
-                        // logIPS();
-                        auto ips = getLocalIPAddresses();
-                        if (std::find(ips.begin(), ips.end(), destIP) == ips.end()) {
-                            OPENVPN_LOG("SENDING TO RELAY SERVER: " << destIP);
-                            char * data = const_cast<char*>(reinterpret_cast<const char*>(buf.c_data()));
-                            relayServer->send_to_client(data, buf.size());
-                            // relayServer->test();
-                        } else {
-                            // OPENVPN_LOG("SENDING TO TUN: " << destIP);
-                            tun->tun_send(buf);
+                            char myipstr[INET6_ADDRSTRLEN];
+                            inet_ntop(AF_INET6, myip6, myipstr, INET6_ADDRSTRLEN);
+                            if (memcmp(hdr->daddr.s6_addr, myip6, sizeof(struct in6_addr)) != 0) {
+                                OPENVPN_LOG("RELAYING " << buf.size() << " BYTES TO: " << destIP << " FROM " << sourceIP << " MYIP: " << myipstr);
+                                relayServer->send_to_client((char *) buf.c_data(), buf.size());
+                            } else {
+                                // OPENVPN_LOG("SENDING TO TUN: " << destIP << " FROM " << sourceIP);
+                                tun->tun_send(buf);
+                            }
                         }
                     }
                 } else {
@@ -472,6 +484,31 @@ class Session : ProtoContextCallbackInterface,
         {
             OPENVPN_LOG("STDEXCEPTION!!!!");
             process_exception(e, "transport_recv");
+        }
+    }
+
+    void getMyIP() {
+        ips = getLocalIPAddresses();
+        for (auto ip : ips) {
+            if (ip.rfind("10.8.0.", 0) == 0) {
+                inet_pton(AF_INET, ip.c_str(), &myip);
+                myIpInit = true;
+                break;
+            }
+
+        }
+    }
+
+    void getMyIp6() {
+        ips = getLocalIPAddresses();
+        for (auto ip : ips) {
+            OPENVPN_LOG("IP: " << ip);
+            if (ip.rfind("2601:640:8b00:90f0:1::", 0) == 0) {
+                OPENVPN_LOG("FOUND MY IPv6: " << ip);
+                inet_pton(AF_INET6, ip.c_str(), &myip6);
+                myIp6Init = true;
+                break;
+            }
         }
     }
 
