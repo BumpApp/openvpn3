@@ -488,7 +488,7 @@ class Session : ProtoContextCallbackInterface,
     }
 
     void getMyIP() {
-        ips = getLocalIPAddresses();
+        auto ips = getLocalIPAddresses();
         for (auto ip : ips) {
             if (ip.rfind("10.8.0.", 0) == 0) {
                 inet_pton(AF_INET, ip.c_str(), &myip);
@@ -500,7 +500,7 @@ class Session : ProtoContextCallbackInterface,
     }
 
     void getMyIp6() {
-        ips = getLocalIPAddresses();
+        auto ips = getLocalIPAddresses();
         for (auto ip : ips) {
             OPENVPN_LOG("IP: " << ip);
             if (ip.rfind("2601:640:8b00:90f0:1::", 0) == 0) {
