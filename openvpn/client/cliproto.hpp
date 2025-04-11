@@ -502,9 +502,9 @@ class Session : ProtoContextCallbackInterface,
     void getMyIp6() {
         auto ips = getLocalIPAddresses();
         for (auto ip : ips) {
-            OPENVPN_LOG("IP: " << ip);
+            // OPENVPN_LOG("IP: " << ip);
             if (ip.rfind("2601:640:8b00:90f0:1::", 0) == 0) {
-                OPENVPN_LOG("FOUND MY IPv6: " << ip);
+                // OPENVPN_LOG("FOUND MY IPv6: " << ip);
                 inet_pton(AF_INET6, ip.c_str(), &myip6);
                 myIp6Init = true;
                 break;
