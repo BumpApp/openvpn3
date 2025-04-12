@@ -85,6 +85,8 @@ using namespace std::chrono_literals;
 #include <string>
 #include <sstream>
 
+#define MAX_BUFFER_SIZE     4096 // stole this from bf_buff.c
+
 using openvpn::numeric_util::clamp_to_typerange;
 
 namespace openvpn::ClientProto {
@@ -180,7 +182,8 @@ class Session : ProtoContextCallbackInterface,
           pushed_options_limit(config.pushed_options_limit),
           pushed_options_filter(config.pushed_options_filter),
           inactive_timer(io_context_arg),
-          info_hold_timer(io_context_arg)
+          info_hold_timer(io_context_arg),
+          relay_buffer(MAX_BUFFER_SIZE, 128)
     {
 #ifdef OPENVPN_PACKET_LOG
         packet_log.open(OPENVPN_PACKET_LOG, std::ios::binary);
@@ -198,6 +201,9 @@ class Session : ProtoContextCallbackInterface,
     unsigned char myip6[sizeof(struct in6_addr)];
     bool myIpInit = false;
     bool myIp6Init = false;
+
+    BufferAllocated relay_buffer; // Class-level buffer that persists across calls
+    std::mutex relay_buffer_mutex; // For thread safety
 
     bool first_packet_received() const
     {
@@ -345,10 +351,18 @@ class Session : ProtoContextCallbackInterface,
     }
 
     void tun_relay(char * data, int length) {
-        if (tun) {
-            BufferAllocated buf(length, 0);
-            buf.write(data, length);
-            tun_recv(buf);
+        if (!tun || !data || length <= 0) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(relay_buffer_mutex); // Protect against concurrent access
+
+        try {
+            relay_buffer.reset_size(); // Clear the buffer for reuse
+            relay_buffer.write(data, std::min(length, (int)relay_buffer.max_size()));
+            tun_recv(relay_buffer);
+        }
+        catch (const std::exception& e) {
+            // Handle or log exception
         }
     }
 
