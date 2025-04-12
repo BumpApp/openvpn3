@@ -959,32 +959,6 @@ void OpenVPNClient::sendRelay(char* data, int len) {
 #endif
     Log::Context log_context(this);
 #endif
-
-//    // determine if ipv4 or ipv6 header
-//    std::string sourceIP;
-//    std::string destIP;
-//
-//    // bottom four bits of the first byte should be 4 for IPv4
-//    if (determineIPVersion(data, len) == 4)
-//    {
-//        auto *hdr = reinterpret_cast<IPv4Header *>(data);
-//        sourceIP = in_addr_to_string(hdr->saddr);
-//        destIP = in_addr_to_string(hdr->daddr);
-//
-//        // handle the case where the sourec address winds up being 0.0.0.0 - we need the real source address
-//        if (hdr->saddr == 0) {
-//            OPENVPN_LOG("!!!!!!!!!! 0.0.0.0");
-//            auto realSource = string_to_ipv4("10.8.0.3");
-//            hdr->saddr = htonl(realSource);
-//        }
-//        memcpy(data, hdr, sizeof(IPv4Header));
-//    } else {
-//        auto *hdr = reinterpret_cast<const IPv6Header *>(data);
-//        sourceIP = in6_addr_to_string(hdr->saddr);
-//        destIP = in6_addr_to_string(hdr->daddr);
-//    }
-
-//    OPENVPN_LOG("RELAY SEND CALLED with length: " << len << " SRC: " << sourceIP << " DST: " << destIP);
     if (state->session)
     {
         ClientConnect *session = state->session.get();
