@@ -551,6 +551,18 @@ class ClientState
         async_stop_local_.stop();
     }
 
+    void trigger_async_stop_local_fast()
+    {
+        // Post stop directly to session without graceful shutdown
+        if (session)
+        {
+            openvpn_io::post(*io_context_, [sess = session]()
+                            {
+                OPENVPN_ASYNC_HANDLER;
+                sess->stop(); });
+        }
+    }
+
     // disconnect
     void on_disconnect()
     {
@@ -1275,6 +1287,12 @@ OPENVPN_CLIENT_EXPORT void OpenVPNClient::stop()
 {
     if (state->is_foreign_thread_access())
         state->trigger_async_stop_local();
+}
+
+OPENVPN_CLIENT_EXPORT void OpenVPNClient::stop_fast()
+{
+    if (state->is_foreign_thread_access())
+        state->trigger_async_stop_local_fast();
 }
 
 OPENVPN_CLIENT_EXPORT void OpenVPNClient::pause(const std::string &reason)

@@ -642,6 +642,10 @@ class OpenVPNClient : public TunBuilderBase,             // expose tun builder v
     // when connect() is running.
     void stop();
 
+    // Stop the client immediately without sending exit notify.
+    // Useful for fast restarts where we don't need to notify the server.
+    void stop_fast();
+
     // Pause the client -- useful to avoid continuous reconnection attempts
     // when network is down.  May be called from a different thread
     // when connect() is running.
